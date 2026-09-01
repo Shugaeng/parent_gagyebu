@@ -218,6 +218,10 @@
     background:var(--accent-bg);color:var(--accent);border-radius:14px;padding:12px 14px;
     font-size:15px;margin:14px 2px 0;line-height:1.5;
   }
+  .entry-receipt-thumb{
+    display:block;width:100%;max-height:200px;object-fit:contain;
+    background:#00000008;border-radius:14px;margin:12px 0 0;
+  }
 
   /* ---------- Confirm dialog ---------- */
   .confirm-box{
@@ -400,7 +404,7 @@ const FIREBASE_CONFIG = {
   appId: "1:818650925484:web:203ec7aeb0fc30fbbed209",
 };
 const FAMILY_ID = 'main';
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.3.0';
 
 const CATEGORIES = {
   expense: [
@@ -433,6 +437,7 @@ let editingId = null;       // transaction id being edited, or null = new
 let currentType = 'expense';
 let currentCategory = null;
 let receiptHintShown = false;
+let currentReceiptPhotoUrl = null; // 입력 화면에 같이 보여주는 영수증 사진(object URL), 닫을 때 해제
 
 // ---------------------------------------------------------------------
 // Small helpers
@@ -688,15 +693,29 @@ function openEntryModal(tx, prefill) {
 
   $('#delete-row').style.display = tx ? 'flex' : 'none';
 
-  // receipt 자동인식 안내문
+  // receipt 자동인식 안내문 + 촬영한 사진(비교하면서 고치기 쉽게)
   const existingHint = $('#entry-ocr-hint');
   if (existingHint) existingHint.remove();
+  const existingThumb = $('#entry-receipt-thumb');
+  if (existingThumb) existingThumb.remove();
+  if (currentReceiptPhotoUrl) { URL.revokeObjectURL(currentReceiptPhotoUrl); currentReceiptPhotoUrl = null; }
+
   if (prefill && !tx) {
     const hint = document.createElement('div');
     hint.id = 'entry-ocr-hint';
     hint.className = 'ocr-hint';
     hint.textContent = '📷 영수증에서 자동으로 읽었어요. 금액·분류가 맞는지 꼭 확인 후 저장해주세요!';
     $('#entry-title').insertAdjacentElement('afterend', hint);
+
+    if (prefill.photoUrl) {
+      currentReceiptPhotoUrl = prefill.photoUrl;
+      const thumb = document.createElement('img');
+      thumb.id = 'entry-receipt-thumb';
+      thumb.className = 'entry-receipt-thumb';
+      thumb.alt = '촬영한 영수증 사진';
+      thumb.src = prefill.photoUrl;
+      hint.insertAdjacentElement('afterend', thumb);
+    }
   }
 
   show($('#entry-modal'));
@@ -705,6 +724,7 @@ function openEntryModal(tx, prefill) {
 function closeEntryModal() {
   hide($('#entry-modal'));
   editingId = null;
+  if (currentReceiptPhotoUrl) { URL.revokeObjectURL(currentReceiptPhotoUrl); currentReceiptPhotoUrl = null; }
 }
 
 function saveEntry() {
@@ -747,7 +767,8 @@ function openReceiptModal() {
 }
 function closeReceiptModal() { hide($('#receipt-modal')); }
 
-// 사진을 흑백 + 고대비로 다듬어서 인식률을 높임 (실패하면 원본 그대로 사용)
+// 사진을 흑백으로 바꾸고, 사진마다 밝기 상태에 맞춰 자동으로 명암을 최대한 벌려서(auto-levels)
+// 인식률을 높임 (고정된 대비값보다 다양한 조명 환경에서 더 안정적). 실패하면 원본 그대로 사용.
 function preprocessReceiptImage(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -768,9 +789,27 @@ function preprocessReceiptImage(file) {
 
         const imgData = ctx.getImageData(0, 0, width, height);
         const d = imgData.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          let v = (gray - 128) * 1.6 + 128; // 흑백 + 대비 강화
+        const pixelCount = width * height;
+        const gray = new Float32Array(pixelCount);
+        const hist = new Uint32Array(256);
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          gray[p] = g;
+          hist[Math.round(g)]++;
+        }
+
+        // 상/하위 2%는 잡음으로 보고 잘라낸 뒤, 나머지 밝기 범위를 0~255로 쭉 늘려서
+        // 그림자·역광 등 조명이 고르지 않은 사진에서도 글자와 배경이 또렷해지게 함
+        const cut = pixelCount * 0.02;
+        let lo = 0, acc = 0;
+        for (; lo < 255; lo++) { acc += hist[lo]; if (acc > cut) break; }
+        let hi = 255; acc = 0;
+        for (; hi > 0; hi--) { acc += hist[hi]; if (acc > cut) break; }
+        if (hi <= lo) { lo = 0; hi = 255; } // 안전장치 (거의 단색 사진 등)
+
+        const range = hi - lo || 1;
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          let v = ((gray[p] - lo) / range) * 255;
           v = v < 0 ? 0 : v > 255 ? 255 : v;
           d[i] = d[i + 1] = d[i + 2] = v;
         }
@@ -806,13 +845,14 @@ function handleReceiptFile(file) {
     })
     .then(({ data: { text } }) => {
       const parsed = parseReceiptText(text);
+      parsed.photoUrl = url; // 확인 화면에서 사진과 나란히 비교할 수 있도록 전달
       closeReceiptModal();
       openEntryModal(null, parsed);
     })
     .catch((err) => {
       closeReceiptModal();
       toast('영수증을 읽지 못했어요. 직접 입력해주세요.', 3200);
-      openEntryModal(null, { type: 'expense' });
+      openEntryModal(null, { type: 'expense', photoUrl: url });
     });
 }
 
