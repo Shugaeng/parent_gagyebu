@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>우리집 가계부</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue:#1a6fd8; --blue-bg:#eaf2fd;
+    --red:#d8341a; --red-bg:#fdecea;
+    --ink:#1c1c1c; --sub:#5b5b5b;
+    --line:#e4e0d8;
+    --paper:#fffdf8;
+    --card:#ffffff;
+    --bg:#f4f1e9;
+    --accent:#2f7d4f; --accent-bg:#e7f4ec;
+    --radius:20px;
+    --tap-min:64px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    font-size:19px;
+    line-height:1.5;
+    -webkit-text-size-adjust:100%;
+    padding-bottom:120px;
+    min-height:100vh;
+  }
+  button{font-family:inherit;}
+  h1,h2,h3,p{margin:0;}
+  .hidden{display:none !important;}
+  img{max-width:100%;}
+
+  /* ---------- Layout shells ---------- */
+  #app, #setup-screen{max-width:560px;margin:0 auto;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px 20px 10px;
+  }
+  .topbar .title{font-size:26px;font-weight:900;letter-spacing:-0.5px;}
+  .status-dot{width:12px;height:12px;border-radius:50%;background:#bbb;display:inline-block;margin-right:6px;vertical-align:middle;}
+  .status-dot.online{background:var(--accent);}
+  .status-wrap{font-size:15px;color:var(--sub);display:flex;align-items:center;}
+  .gear-link{
+    font-size:15px;color:var(--sub);text-decoration:none;padding:10px;
+    border-radius:12px;
+  }
+
+  /* ---------- Month switcher ---------- */
+  .month-switch{
+    display:flex;align-items:center;justify-content:center;gap:18px;
+    padding:6px 0 18px;
+  }
+  .month-switch button{
+    width:52px;height:52px;border-radius:50%;border:2px solid var(--line);
+    background:var(--card);font-size:24px;color:var(--ink);
+  }
+  .month-switch .month-label{font-size:23px;font-weight:700;min-width:150px;text-align:center;}
+
+  /* ---------- Summary card ---------- */
+  .summary-card{
+    margin:0 20px 22px;background:var(--card);border-radius:var(--radius);
+    padding:24px 22px;box-shadow:0 2px 10px rgba(0,0,0,.05);
+    border:1px solid var(--line);
+  }
+  .summary-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;}
+  .summary-row .label{font-size:19px;color:var(--sub);font-weight:500;}
+  .summary-row .value{font-size:26px;font-weight:900;}
+  .summary-row.income .value{color:var(--blue);}
+  .summary-row.expense .value{color:var(--red);}
+  .summary-divider{height:1px;background:var(--line);margin:8px 0;}
+  .summary-row.balance .label{font-size:20px;font-weight:700;color:var(--ink);}
+  .summary-row.balance .value{font-size:30px;color:var(--accent);}
+
+  /* ---------- Transaction list ---------- */
+  .list-section{padding:0 20px;}
+  .date-heading{
+    font-size:17px;font-weight:700;color:var(--sub);
+    margin:22px 4px 8px;
+  }
+  .tx-row{
+    display:flex;align-items:center;gap:14px;
+    background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:16px 16px;margin-bottom:10px;
+    min-height:var(--tap-min);
+    cursor:pointer;
+  }
+  .tx-row:active{background:#f7f5ee;}
+  .tx-icon{
+    width:52px;height:52px;border-radius:14px;flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:26px;
+  }
+  .tx-icon.expense{background:var(--red-bg);}
+  .tx-icon.income{background:var(--blue-bg);}
+  .tx-main{flex:1;min-width:0;}
+  .tx-cat{font-size:19px;font-weight:700;}
+  .tx-memo{font-size:15px;color:var(--sub);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tx-amount{font-size:21px;font-weight:900;flex:none;white-space:nowrap;}
+  .tx-amount.expense{color:var(--red);}
+  .tx-amount.income{color:var(--blue);}
+  .empty-msg{
+    text-align:center;color:var(--sub);font-size:18px;padding:60px 20px;
+  }
+
+  /* ---------- Bottom action bar ---------- */
+  .bottom-bar{
+    position:fixed;left:0;right:0;bottom:0;
+    max-width:560px;margin:0 auto;
+    display:flex;gap:12px;padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, var(--bg) 65%, transparent);
+  }
+  .big-btn{
+    flex:1;min-height:76px;border-radius:20px;border:none;
+    font-size:21px;font-weight:800;color:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    box-shadow:0 4px 14px rgba(0,0,0,.18);
+  }
+  .big-btn .emoji{font-size:26px;}
+  .big-btn.receipt{background:var(--accent);}
+  .big-btn.manual{background:var(--blue);}
+  .big-btn:active{filter:brightness(0.92);}
+
+  /* ---------- Generic modal ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(20,18,10,.5);
+    display:flex;align-items:flex-end;justify-content:center;
+    z-index:50;
+  }
+  .modal-sheet{
+    background:var(--paper);width:100%;max-width:560px;
+    border-radius:26px 26px 0 0;padding:22px 20px calc(24px + env(safe-area-inset-bottom));
+    max-height:92vh;overflow-y:auto;
+  }
+  .modal-title{font-size:24px;font-weight:900;margin-bottom:18px;text-align:center;}
+  .modal-close{
+    position:absolute;top:18px;right:18px;width:44px;height:44px;
+    border-radius:50%;border:none;background:#00000010;font-size:20px;color:var(--sub);
+  }
+  .modal-sheet{position:relative;}
+
+  /* ---------- Segmented type toggle ---------- */
+  .type-toggle{display:flex;gap:10px;margin-bottom:20px;}
+  .type-toggle button{
+    flex:1;min-height:64px;border-radius:16px;border:3px solid var(--line);
+    background:var(--card);font-size:21px;font-weight:800;color:var(--sub);
+  }
+  .type-toggle button.active.expense{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+  .type-toggle button.active.income{border-color:var(--blue);background:var(--blue-bg);color:var(--blue);}
+
+  /* ---------- Category grid ---------- */
+  .field-label{font-size:18px;font-weight:700;color:var(--sub);margin:18px 2px 10px;}
+  .cat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .cat-btn{
+    min-height:78px;border-radius:16px;border:3px solid var(--line);background:var(--card);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    font-size:14px;font-weight:700;color:var(--ink);
+  }
+  .cat-btn .emoji{font-size:26px;}
+  .cat-btn.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);}
+
+  /* ---------- Amount / date / memo inputs ---------- */
+  .amount-wrap{
+    display:flex;align-items:baseline;justify-content:center;gap:8px;
+    background:var(--card);border:3px solid var(--line);border-radius:18px;
+    padding:14px 16px;margin-top:4px;
+  }
+  .amount-wrap input{
+    border:none;outline:none;background:transparent;
+    font-size:38px;font-weight:900;text-align:right;width:100%;color:var(--ink);
+    font-family:inherit;
+  }
+  .amount-wrap input::placeholder{color:#c9c3b3;font-weight:700;}
+  .amount-wrap .won{font-size:24px;font-weight:700;color:var(--sub);}
+  input[type="date"], input.text-input{
+    width:100%;min-height:var(--tap-min);border:3px solid var(--line);border-radius:16px;
+    background:var(--card);font-size:19px;padding:0 16px;font-family:inherit;color:var(--ink);
+  }
+  input[type="date"]{font-size:20px;}
+
+  .modal-actions{display:flex;gap:12px;margin-top:26px;}
+  .action-btn{
+    flex:1;min-height:68px;border-radius:18px;border:none;font-size:21px;font-weight:800;
+  }
+  .action-btn.save{background:var(--accent);color:#fff;}
+  .action-btn.save:active{filter:brightness(0.92);}
+  .action-btn.delete{background:var(--red-bg);color:var(--red);}
+  .action-btn.cancel{background:#eee;color:var(--sub);}
+
+  /* ---------- Receipt flow ---------- */
+  .receipt-pick{
+    display:flex;flex-direction:column;align-items:center;gap:18px;padding:20px 10px 10px;
+  }
+  .receipt-pick .big-emoji{font-size:64px;}
+  .receipt-pick p{font-size:19px;color:var(--sub);text-align:center;}
+  .receipt-pick .pick-btn{
+    width:100%;min-height:80px;border-radius:20px;border:none;background:var(--accent);
+    color:#fff;font-size:22px;font-weight:800;
+  }
+  .receipt-thumb{width:100%;max-height:220px;object-fit:contain;border-radius:16px;background:#00000008;margin-bottom:14px;}
+  .ocr-progress{display:flex;flex-direction:column;align-items:center;gap:14px;padding:26px 10px;}
+  .spinner{
+    width:52px;height:52px;border:6px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .ocr-progress p{font-size:19px;color:var(--sub);}
+  .ocr-hint{
+    background:var(--accent-bg);color:var(--accent);border-radius:14px;padding:12px 14px;
+    font-size:15px;margin:14px 2px 0;line-height:1.5;
+  }
+
+  /* ---------- Confirm dialog ---------- */
+  .confirm-box{
+    background:var(--paper);border-radius:22px;padding:26px 24px;max-width:400px;width:88%;
+    text-align:center;
+  }
+  .confirm-box p{font-size:20px;font-weight:700;margin-bottom:22px;line-height:1.5;}
+  .confirm-actions{display:flex;gap:12px;}
+
+  /* ---------- Setup screen ---------- */
+  #setup-screen{padding:28px 22px 60px;}
+  .setup-header{text-align:center;margin-bottom:24px;}
+  .setup-header .emoji{font-size:48px;}
+  .setup-header h1{font-size:24px;font-weight:900;margin-top:8px;}
+  .setup-header p{color:var(--sub);font-size:16px;margin-top:6px;}
+  .setup-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px;}
+  .setup-card h2{font-size:17px;font-weight:800;margin-bottom:10px;}
+  .setup-field{margin-bottom:12px;}
+  .setup-field label{display:block;font-size:14px;color:var(--sub);margin-bottom:5px;font-weight:600;}
+  .setup-field input{
+    width:100%;min-height:50px;border:2px solid var(--line);border-radius:10px;
+    padding:0 12px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink);
+  }
+  .setup-note{font-size:13.5px;color:var(--sub);line-height:1.6;background:#00000006;border-radius:10px;padding:10px 12px;}
+  .setup-actions{display:flex;gap:10px;margin-top:6px;}
+  .setup-actions button{
+    flex:1;min-height:56px;border-radius:14px;border:none;font-size:17px;font-weight:800;
+  }
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-secondary{background:#eee;color:var(--sub);}
+  .code-row{display:flex;gap:8px;}
+  .code-row input{flex:1;}
+  .code-row button{flex:none;padding:0 14px;border-radius:10px;border:2px solid var(--line);background:#fff;font-size:14px;font-weight:700;}
+  .setup-error{background:var(--red-bg);color:var(--red);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:14px;line-height:1.5;}
+  .setup-status{text-align:center;color:var(--sub);font-size:15px;padding:20px;}
+
+  .toast{
+    position:fixed;left:50%;bottom:150px;transform:translateX(-50%);
+    background:#1c1c1cf0;color:#fff;padding:14px 22px;border-radius:14px;
+    font-size:16px;font-weight:600;z-index:100;max-width:80%;text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= SETUP SCREEN ================= -->
+<div id="setup-screen" class="hidden"></div>
+
+<!-- ================= MAIN APP ================= -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="title">💰 우리집 가계부</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="status-wrap"><span id="status-dot" class="status-dot"></span><span id="status-text">연결중</span></span>
+      <a href="#" id="settings-link" class="gear-link">⚙️ 설정</a>
+    </div>
+  </div>
+
+  <div class="month-switch">
+    <button id="prev-month" aria-label="이전 달">◀</button>
+    <div class="month-label" id="month-label">2026년 9월</div>
+    <button id="next-month" aria-label="다음 달">▶</button>
+  </div>
+
+  <div class="summary-card">
+    <div class="summary-row income"><span class="label">이번달 수입</span><span class="value" id="sum-income">0원</span></div>
+    <div class="summary-row expense"><span class="label">이번달 지출</span><span class="value" id="sum-expense">0원</span></div>
+    <div class="summary-divider"></div>
+    <div class="summary-row balance"><span class="label">남은 돈</span><span class="value" id="sum-balance">0원</span></div>
+  </div>
+
+  <div class="list-section" id="list-section">
+    <!-- transaction groups injected here -->
+  </div>
+</div>
+
+<div class="bottom-bar hidden" id="bottom-bar">
+  <button class="big-btn receipt" id="open-receipt"><span class="emoji">📷</span>영수증으로 입력</button>
+  <button class="big-btn manual" id="open-manual"><span class="emoji">✏️</span>직접 입력</button>
+</div>
+
+<!-- ================= ENTRY MODAL (manual + receipt-confirm share this) ================= -->
+<div class="modal-overlay hidden" id="entry-modal">
+  <div class="modal-sheet">
+    <button class="modal-close" id="entry-close">✕</button>
+    <div class="modal-title" id="entry-title">직접 입력</div>
+
+    <div class="type-toggle">
+      <button type="button" class="expense" id="type-expense">지출</button>
+      <button type="button" class="income" id="type-income">수입</button>
+    </div>
+
+    <div class="field-label">분류</div>
+    <div class="cat-grid" id="cat-grid"></div>
+
+    <div class="field-label">금액</div>
+    <div class="amount-wrap">
+      <input type="tel" inputmode="numeric" id="amount-input" placeholder="0">
+      <span class="won">원</span>
+    </div>
+
+    <div class="field-label">날짜</div>
+    <input type="date" id="date-input">
+
+    <div class="field-label">메모 (선택)</div>
+    <input type="text" class="text-input" id="memo-input" placeholder="예: 오늘 병원">
+
+    <div class="modal-actions">
+      <button class="action-btn cancel" id="entry-cancel">취소</button>
+      <button class="action-btn save" id="entry-save">저장</button>
+    </div>
+    <div class="modal-actions" id="delete-row" style="display:none;">
+      <button class="action-btn delete" id="entry-delete">이 내역 삭제</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= RECEIPT MODAL ================= -->
+<div class="modal-overlay hidden" id="receipt-modal">
+  <div class="modal-sheet">
+    <button class="modal-close" id="receipt-close">✕</button>
+    <div class="modal-title">영수증으로 입력</div>
+
+    <div id="receipt-pick-view" class="receipt-pick">
+      <div class="big-emoji">🧾</div>
+      <p>영수증 사진을 찍으면<br>금액을 자동으로 읽어드려요</p>
+      <button class="pick-btn" id="receipt-camera-btn">📷 영수증 촬영하기</button>
+      <input type="file" accept="image/*" capture="environment" id="receipt-file-input" class="hidden">
+    </div>
+
+    <div id="receipt-progress-view" class="hidden">
+      <img id="receipt-thumb" class="receipt-thumb" alt="영수증 사진">
+      <div class="ocr-progress">
+        <div class="spinner"></div>
+        <p id="ocr-status-text">영수증을 읽고 있어요...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CONFIRM DIALOG ================= -->
+<div class="modal-overlay hidden" id="confirm-modal">
+  <div class="confirm-box">
+    <p id="confirm-message">정말 삭제할까요?</p>
+    <div class="confirm-actions">
+      <button class="action-btn cancel" id="confirm-no">아니오</button>
+      <button class="action-btn delete" id="confirm-yes">네, 삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- ================= Firebase SDK ================= -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<!-- ================= Tesseract.js (receipt OCR) ================= -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+
+<script>
+/* =========================================================================
+   우리집 가계부 (부모님용) — app.js
+   - localStorage에 Firebase 설정 + 가족 코드를 저장해두고
+   - Firestore 실시간 동기화로 부모님/자녀 기기가 같은 데이터를 봄
+   - 영수증 사진은 Tesseract.js로 글자를 읽어서 금액/날짜를 자동으로 채움
+   ========================================================================= */
+
+const CONFIG_KEY = 'ledger_config_v1';
+
+const CATEGORIES = {
+  expense: [
+    { key: 'food',      label: '식비',       emoji: '🍚' },
+    { key: 'daily',     label: '생활용품',    emoji: '🧴' },
+    { key: 'medical',   label: '의료/약국',   emoji: '💊' },
+    { key: 'transport', label: '교통비',      emoji: '🚌' },
+    { key: 'event',     label: '경조사비',    emoji: '🎁' },
+    { key: 'bill',      label: '통신/공과금', emoji: '📱' },
+    { key: 'hobby',     label: '취미/여가',   emoji: '🎣' },
+    { key: 'etc',       label: '기타',        emoji: '📦' },
+  ],
+  income: [
+    { key: 'pension',   label: '연금',        emoji: '🏦' },
+    { key: 'allowance', label: '용돈',        emoji: '💵' },
+    { key: 'interest',  label: '이자/배당',   emoji: '💰' },
+    { key: 'etc',       label: '기타',        emoji: '📦' },
+  ],
+};
+
+// ---------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------
+let appConfig = null;      // { familyId, firebaseConfig }
+let firestoreDb = null;
+let colRef = null;
+let unsubscribeFn = null;
+let allTx = [];             // every transaction loaded from Firestore
+let viewDate = new Date();  // which month is being viewed
+let editingId = null;       // transaction id being edited, or null = new
+let currentType = 'expense';
+let currentCategory = null;
+let receiptHintShown = false;
+
+// ---------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------
+function $(sel) { return document.querySelector(sel); }
+function pad2(n) { return String(n).padStart(2, '0'); }
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function formatWon(n) {
+  return new Intl.NumberFormat('ko-KR').format(Math.round(n || 0)) + '원';
+}
+function toast(msg, ms = 2200) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add('hidden'), ms);
+}
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
+
+function showConfirm(message, onYes) {
+  $('#confirm-message').textContent = message;
+  show($('#confirm-modal'));
+  const yesBtn = $('#confirm-yes');
+  const noBtn = $('#confirm-no');
+  const cleanup = () => {
+    hide($('#confirm-modal'));
+    yesBtn.onclick = null;
+    noBtn.onclick = null;
+  };
+  yesBtn.onclick = () => { cleanup(); onYes(); };
+  noBtn.onclick = cleanup;
+}
+
+function generateFamilyCode() {
+  // 헷갈리는 글자(0/O, 1/I) 제외한 코드 생성
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Config load / save
+// ---------------------------------------------------------------------
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.familyId || !parsed.firebaseConfig || !parsed.firebaseConfig.apiKey) return null;
+    return parsed;
+  } catch (e) { return null; }
+}
+function saveConfig(cfg) {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+}
+function clearConfig() {
+  localStorage.removeItem(CONFIG_KEY);
+}
+
+// parse a pasted firebaseConfig JS object (from Firebase console) into a plain object
+function parseFirebaseConfigText(text) {
+  const out = {};
+  const re = /(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId|measurementId)\s*:\s*["']([^"']+)["']/g;
+  let m;
+  while ((m = re.exec(text)) !== null) out[m[1]] = m[2];
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Setup / Settings screen (shared renderer)
+// ---------------------------------------------------------------------
+function renderSetupScreen(mode) {
+  // mode: 'initial' (첫 설정, 앱을 아직 못 씀) | 'settings' (앱에서 설정 보기/변경)
+  const existing = appConfig;
+  const wrap = $('#setup-screen');
+  wrap.innerHTML = `
+    <div class="setup-header">
+      <div class="emoji">💰</div>
+      <h1>${mode === 'initial' ? '우리집 가계부 설정' : '설정'}</h1>
+      <p>${mode === 'initial'
+        ? '처음 한 번만 설정하면 돼요.<br>보통 자녀분이 도와드리는 단계예요.'
+        : '가족 코드와 연결 정보를 확인하거나 바꿀 수 있어요.'}</p>
+    </div>
+
+    <div id="setup-error-area"></div>
+
+    <div class="setup-card">
+      <h2>1. 가족 코드</h2>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:10px;line-height:1.5;">
+        부모님 기기와 자녀분 기기에 <b>똑같은 코드</b>를 넣어야 같은 가계부를 볼 수 있어요.
+      </p>
+      <div class="setup-field">
+        <label>가족 코드</label>
+        <div class="code-row">
+          <input type="text" id="family-code-input" placeholder="예: AB12CD34" value="${existing ? existing.familyId : ''}">
+          <button type="button" id="gen-code-btn">자동생성</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="setup-card">
+      <h2>2. Firebase 연결 정보</h2>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:10px;line-height:1.5;">
+        Firebase 콘솔에서 복사한 <code>firebaseConfig</code> 코드를 통째로 붙여넣으세요.
+      </p>
+      <div class="setup-field">
+        <label>firebaseConfig 붙여넣기</label>
+        <textarea id="firebase-config-input" rows="7" style="width:100%;border:2px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;font-family:monospace;color:var(--ink);background:#fff;">${existing ? JSON.stringify(existing.firebaseConfig, null, 2) : ''}</textarea>
+      </div>
+      <div class="setup-note">
+        Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) 에서 나오는<br>
+        <code>const firebaseConfig = { apiKey: "...", ... }</code> 부분을 그대로 붙여넣으면 자동으로 인식돼요.
+      </div>
+    </div>
+
+    <div class="setup-actions">
+      ${mode === 'settings' ? '<button type="button" class="btn-secondary" id="setup-back-btn">뒤로</button>' : ''}
+      <button type="button" class="btn-primary" id="setup-save-btn">${mode === 'initial' ? '저장하고 시작하기' : '저장'}</button>
+    </div>
+
+    ${mode === 'settings' ? `
+    <div class="setup-card" style="margin-top:22px;">
+      <h2>내보내기</h2>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:12px;">이번 달 내역을 CSV 파일로 저장해요.</p>
+      <div class="setup-actions"><button type="button" class="btn-secondary" id="export-csv-btn">CSV로 내보내기</button></div>
+    </div>
+    <div class="setup-card">
+      <h2 style="color:var(--red);">이 기기 설정 초기화</h2>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:12px;">이 기기에서만 연결을 끊어요. 데이터는 지워지지 않아요.</p>
+      <div class="setup-actions"><button type="button" class="btn-secondary" id="reset-config-btn" style="color:var(--red);">초기화</button></div>
+    </div>` : ''}
+  `;
+
+  $('#gen-code-btn').onclick = () => { $('#family-code-input').value = generateFamilyCode(); };
+
+  $('#setup-save-btn').onclick = () => {
+    const familyId = $('#family-code-input').value.trim().replace(/\s+/g, '');
+    const rawCfgText = $('#firebase-config-input').value;
+    if (!familyId) return setupError('가족 코드를 입력해주세요.');
+    const parsed = parseFirebaseConfigText(rawCfgText);
+    if (!parsed.apiKey || !parsed.projectId) {
+      return setupError('firebaseConfig 내용을 다시 확인해주세요. (apiKey, projectId가 필요해요)');
+    }
+    const cfg = { familyId, firebaseConfig: parsed };
+    saveConfig(cfg);
+    appConfig = cfg;
+    $('#setup-error-area').innerHTML = '';
+    wrap.innerHTML += `<p class="setup-status">연결하는 중...</p>`;
+    initFirebase(cfg);
+  };
+
+  if (mode === 'settings') {
+    $('#setup-back-btn').onclick = () => { hide(wrap); show($('#app')); show($('#bottom-bar')); };
+    $('#export-csv-btn').onclick = exportCsv;
+    $('#reset-config-btn').onclick = () => {
+      showConfirm('이 기기의 설정을 초기화할까요?\n(가계부 데이터는 그대로 남아있어요)', () => {
+        clearConfig();
+        location.reload();
+      });
+    };
+  }
+}
+function setupError(msg) {
+  $('#setup-error-area').innerHTML = `<div class="setup-error">${msg}</div>`;
+}
+
+// ---------------------------------------------------------------------
+// Firebase init
+// ---------------------------------------------------------------------
+function initFirebase(cfg) {
+  try {
+    if (!firebase.apps || !firebase.apps.length) {
+      firebase.initializeApp(cfg.firebaseConfig);
+    }
+    firestoreDb = firebase.firestore();
+    firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => { /* ignore: unsupported or multi-tab */ });
+
+    firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+        colRef = firestoreDb.collection('families').doc(cfg.familyId).collection('transactions');
+        startListening();
+        showMainApp();
+      }
+    });
+    firebase.auth().signInAnonymously().catch((err) => {
+      handleInitFailure('로그인에 실패했어요: ' + err.message);
+    });
+  } catch (err) {
+    handleInitFailure('연결 정보에 문제가 있어요: ' + err.message);
+  }
+}
+
+function handleInitFailure(msg) {
+  clearConfig();
+  appConfig = null;
+  renderSetupScreen('initial');
+  setupError(msg + ' 값을 다시 확인해서 저장해주세요.');
+  show($('#setup-screen'));
+  hide($('#app'));
+  hide($('#bottom-bar'));
+}
+
+function startListening() {
+  if (unsubscribeFn) unsubscribeFn();
+  unsubscribeFn = colRef.orderBy('date', 'desc').onSnapshot(
+    (snap) => {
+      allTx = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderList();
+      setStatus(true);
+    },
+    (err) => {
+      toast('동기화 오류: ' + err.message, 3500);
+      setStatus(false);
+    }
+  );
+}
+
+function setStatus(ok) {
+  const dot = $('#status-dot');
+  const text = $('#status-text');
+  if (ok && navigator.onLine) {
+    dot.classList.add('online');
+    text.textContent = '연결됨';
+  } else {
+    dot.classList.remove('online');
+    text.textContent = navigator.onLine ? '연결중' : '오프라인(저장 대기중)';
+  }
+}
+window.addEventListener('online', () => setStatus(true));
+window.addEventListener('offline', () => setStatus(false));
+
+function showMainApp() {
+  hide($('#setup-screen'));
+  show($('#app'));
+  show($('#bottom-bar'));
+  renderList();
+}
+
+// ---------------------------------------------------------------------
+// List / summary rendering
+// ---------------------------------------------------------------------
+function monthKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; }
+
+function renderList() {
+  const key = monthKey(viewDate);
+  $('#month-label').textContent = `${viewDate.getFullYear()}년 ${viewDate.getMonth() + 1}월`;
+
+  const monthTx = allTx.filter((t) => t.date && t.date.startsWith(key));
+
+  let income = 0, expense = 0;
+  monthTx.forEach((t) => { if (t.type === 'income') income += Number(t.amount) || 0; else expense += Number(t.amount) || 0; });
+  $('#sum-income').textContent = formatWon(income);
+  $('#sum-expense').textContent = formatWon(expense);
+  $('#sum-balance').textContent = formatWon(income - expense);
+
+  // group by date desc
+  const byDate = new Map();
+  monthTx
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    .forEach((t) => {
+      if (!byDate.has(t.date)) byDate.set(t.date, []);
+      byDate.get(t.date).push(t);
+    });
+
+  const section = $('#list-section');
+  if (byDate.size === 0) {
+    section.innerHTML = `<div class="empty-msg">이 달에는 아직 기록이 없어요.<br>아래 버튼으로 입력해보세요 🙂</div>`;
+    return;
+  }
+
+  let html = '';
+  for (const [date, items] of byDate) {
+    const d = new Date(date + 'T00:00:00');
+    const weekday = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
+    html += `<div class="date-heading">${d.getMonth() + 1}월 ${d.getDate()}일 (${weekday})</div>`;
+    for (const t of items) {
+      const cat = findCategory(t.type, t.category);
+      html += `
+        <div class="tx-row" data-id="${t.id}">
+          <div class="tx-icon ${t.type}">${cat ? cat.emoji : '📦'}</div>
+          <div class="tx-main">
+            <div class="tx-cat">${cat ? cat.label : '기타'}</div>
+            ${t.memo ? `<div class="tx-memo">${escapeHtml(t.memo)}</div>` : ''}
+          </div>
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'}${formatWon(t.amount)}</div>
+        </div>`;
+    }
+  }
+  section.innerHTML = html;
+
+  section.querySelectorAll('.tx-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const t = allTx.find((x) => x.id === row.dataset.id);
+      if (t) openEntryModal(t);
+    });
+  });
+}
+
+function findCategory(type, key) {
+  return (CATEGORIES[type] || []).find((c) => c.key === key);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---------------------------------------------------------------------
+// Entry modal (manual add / edit / receipt-prefill)
+// ---------------------------------------------------------------------
+function renderCatGrid() {
+  const grid = $('#cat-grid');
+  grid.innerHTML = CATEGORIES[currentType]
+    .map(
+      (c) => `<button type="button" class="cat-btn ${c.key === currentCategory ? 'active' : ''}" data-key="${c.key}">
+        <span class="emoji">${c.emoji}</span>${c.label}
+      </button>`
+    )
+    .join('');
+  grid.querySelectorAll('.cat-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      currentCategory = btn.dataset.key;
+      renderCatGrid();
+    });
+  });
+}
+
+function setEntryType(type) {
+  currentType = type;
+  if (!findCategory(type, currentCategory)) currentCategory = null;
+  $('#type-expense').classList.toggle('active', type === 'expense');
+  $('#type-income').classList.toggle('active', type === 'income');
+  renderCatGrid();
+}
+
+function openEntryModal(tx, prefill) {
+  editingId = tx ? tx.id : null;
+  currentType = tx ? tx.type : (prefill && prefill.type) || 'expense';
+  currentCategory = tx ? tx.category : (prefill && prefill.category) || null;
+
+  $('#entry-title').textContent = tx ? '내역 수정' : '직접 입력';
+  $('#type-expense').classList.toggle('active', currentType === 'expense');
+  $('#type-income').classList.toggle('active', currentType === 'income');
+  renderCatGrid();
+
+  const amount = tx ? tx.amount : (prefill && prefill.amount) || '';
+  $('#amount-input').value = amount ? new Intl.NumberFormat('ko-KR').format(amount) : '';
+  $('#date-input').value = tx ? tx.date : (prefill && prefill.date) || todayStr();
+  $('#memo-input').value = tx ? tx.memo || '' : (prefill && prefill.memo) || '';
+
+  $('#delete-row').style.display = tx ? 'flex' : 'none';
+
+  // receipt 자동인식 안내문
+  const existingHint = $('#entry-ocr-hint');
+  if (existingHint) existingHint.remove();
+  if (prefill && !tx) {
+    const hint = document.createElement('div');
+    hint.id = 'entry-ocr-hint';
+    hint.className = 'ocr-hint';
+    hint.textContent = '📷 영수증에서 자동으로 읽었어요. 맞는지 한 번 확인해주세요!';
+    $('#entry-title').insertAdjacentElement('afterend', hint);
+  }
+
+  show($('#entry-modal'));
+}
+
+function closeEntryModal() {
+  hide($('#entry-modal'));
+  editingId = null;
+}
+
+function saveEntry() {
+  const rawAmount = $('#amount-input').value.replace(/[^0-9]/g, '');
+  const amount = parseInt(rawAmount, 10);
+  const date = $('#date-input').value || todayStr();
+  const memo = $('#memo-input').value.trim();
+
+  if (!currentCategory) return toast('분류를 선택해주세요.');
+  if (!amount || amount <= 0) return toast('금액을 입력해주세요.');
+
+  const data = { type: currentType, category: currentCategory, amount, date, memo };
+
+  const finish = () => { closeEntryModal(); toast('저장했어요 ✓'); };
+  if (editingId) {
+    colRef.doc(editingId).update(data).then(finish).catch((e) => toast('저장 실패: ' + e.message));
+  } else {
+    data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    colRef.add(data).then(finish).catch((e) => toast('저장 실패: ' + e.message));
+  }
+}
+
+function deleteEntry() {
+  if (!editingId) return;
+  showConfirm('이 내역을 삭제할까요?', () => {
+    colRef.doc(editingId).delete()
+      .then(() => { closeEntryModal(); toast('삭제했어요'); })
+      .catch((e) => toast('삭제 실패: ' + e.message));
+  });
+}
+
+// ---------------------------------------------------------------------
+// Receipt OCR flow
+// ---------------------------------------------------------------------
+function openReceiptModal() {
+  $('#receipt-pick-view').classList.remove('hidden');
+  $('#receipt-progress-view').classList.add('hidden');
+  $('#receipt-file-input').value = '';
+  show($('#receipt-modal'));
+}
+function closeReceiptModal() { hide($('#receipt-modal')); }
+
+function handleReceiptFile(file) {
+  if (!file) return;
+  $('#receipt-pick-view').classList.add('hidden');
+  $('#receipt-progress-view').classList.remove('hidden');
+  $('#ocr-status-text').textContent = '영수증을 읽고 있어요...';
+
+  const url = URL.createObjectURL(file);
+  $('#receipt-thumb').src = url;
+
+  Tesseract.recognize(file, 'kor+eng', {
+    logger: (m) => {
+      if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+        $('#ocr-status-text').textContent = `영수증을 읽고 있어요... (${Math.round(m.progress * 100)}%)`;
+      }
+    },
+  })
+    .then(({ data: { text } }) => {
+      const parsed = parseReceiptText(text);
+      closeReceiptModal();
+      openEntryModal(null, parsed);
+    })
+    .catch((err) => {
+      closeReceiptModal();
+      toast('영수증을 읽지 못했어요. 직접 입력해주세요.', 3200);
+      openEntryModal(null, { type: 'expense' });
+    });
+}
+
+function parseReceiptText(text) {
+  return {
+    type: 'expense',
+    category: 'food',
+    amount: extractAmount(text),
+    date: extractDate(text) || todayStr(),
+    memo: extractStoreName(text),
+  };
+}
+
+function extractAmount(text) {
+  const lines = text.split('\n');
+  const keywordRe = /(합\s*계|총\s*액|받을\s*금액|결제\s*금액|승인\s*금액|판매\s*금액|지불\s*금액|합계금액)/;
+  const numRe = /(\d{1,3}(?:,\d{3})+|\d{4,})/g;
+
+  let best = null;
+  for (const line of lines) {
+    if (keywordRe.test(line)) {
+      const nums = [...line.matchAll(numRe)].map((m) => parseInt(m[1].replace(/,/g, ''), 10));
+      const valid = nums.filter((n) => n >= 100 && n <= 5000000);
+      if (valid.length) {
+        const v = Math.max(...valid);
+        if (best === null || v > best) best = v;
+      }
+    }
+  }
+  if (best !== null) return best;
+
+  // fallback: 영수증 전체에서 가장 큰 합리적인 숫자를 총액으로 추정
+  const allNums = [...text.matchAll(numRe)].map((m) => parseInt(m[1].replace(/,/g, ''), 10));
+  const valid = allNums.filter((n) => n >= 100 && n <= 5000000);
+  if (valid.length) return Math.max(...valid);
+  return '';
+}
+
+function extractDate(text) {
+  const re = /(20\d{2})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})/;
+  const m = text.match(re);
+  if (!m) return null;
+  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), da = parseInt(m[3], 10);
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return null;
+  return `${y}-${pad2(mo)}-${pad2(da)}`;
+}
+
+function extractStoreName(text) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return '';
+  // 너무 짧거나 숫자/기호뿐인 줄은 건너뛰기
+  for (const line of lines.slice(0, 5)) {
+    const cleaned = line.replace(/[^가-힣A-Za-z0-9\s]/g, '').trim();
+    if (cleaned.length >= 2 && !/^\d+$/.test(cleaned)) {
+      return cleaned.slice(0, 20);
+    }
+  }
+  return '';
+}
+
+// ---------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------
+function exportCsv() {
+  const key = monthKey(viewDate);
+  const monthTx = allTx.filter((t) => t.date && t.date.startsWith(key));
+  if (!monthTx.length) return toast('내보낼 내역이 없어요.');
+
+  let csv = '﻿날짜,구분,분류,금액,메모\n';
+  monthTx
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .forEach((t) => {
+      const cat = findCategory(t.type, t.category);
+      const row = [t.date, t.type === 'income' ? '수입' : '지출', cat ? cat.label : '기타', t.amount, (t.memo || '').replace(/,/g, ' ')];
+      csv += row.join(',') + '\n';
+    });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `가계부_${key}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------
+// Wire up static event listeners
+// ---------------------------------------------------------------------
+function wireEvents() {
+  $('#prev-month').addEventListener('click', () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
+    renderList();
+  });
+  $('#next-month').addEventListener('click', () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
+    renderList();
+  });
+
+  $('#settings-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    hide($('#app'));
+    hide($('#bottom-bar'));
+    renderSetupScreen('settings');
+    show($('#setup-screen'));
+  });
+
+  $('#open-manual').addEventListener('click', () => openEntryModal(null));
+  $('#entry-close').addEventListener('click', closeEntryModal);
+  $('#entry-cancel').addEventListener('click', closeEntryModal);
+  $('#entry-save').addEventListener('click', saveEntry);
+  $('#entry-delete').addEventListener('click', deleteEntry);
+  $('#type-expense').addEventListener('click', () => setEntryType('expense'));
+  $('#type-income').addEventListener('click', () => setEntryType('income'));
+
+  $('#amount-input').addEventListener('input', (e) => {
+    const digits = e.target.value.replace(/[^0-9]/g, '');
+    e.target.value = digits ? new Intl.NumberFormat('ko-KR').format(parseInt(digits, 10)) : '';
+  });
+
+  $('#open-receipt').addEventListener('click', openReceiptModal);
+  $('#receipt-close').addEventListener('click', closeReceiptModal);
+  $('#receipt-camera-btn').addEventListener('click', () => $('#receipt-file-input').click());
+  $('#receipt-file-input').addEventListener('change', (e) => handleReceiptFile(e.target.files[0]));
+
+  // 모달 바깥(어두운 배경) 클릭 시 닫기
+  [
+    ['#entry-modal', closeEntryModal],
+    ['#receipt-modal', closeReceiptModal],
+  ].forEach(([sel, closer]) => {
+    $(sel).addEventListener('click', (e) => { if (e.target === $(sel)) closer(); });
+  });
+}
+
+// ---------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  wireEvents();
+  appConfig = loadConfig();
+  if (appConfig) {
+    initFirebase(appConfig);
+  } else {
+    renderSetupScreen('initial');
+    show($('#setup-screen'));
+  }
+});
+
+</script>
+</body>
+</html>
