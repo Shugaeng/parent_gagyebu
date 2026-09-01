@@ -385,7 +385,17 @@
    - 영수증 사진은 Tesseract.js로 글자를 읽어서 금액/날짜를 자동으로 채움
    ========================================================================= */
 
-const CONFIG_KEY = 'ledger_config_v1';
+// 우리집 전용 Firebase 프로젝트 — 이미 이 프로젝트로 고정돼 있어서
+// 기기마다 따로 연결 정보를 입력할 필요가 없어요 (그냥 주소만 열면 접속됨).
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBjEgVoXe0lgFkWkGI8_RMgOHB24ihBFhI",
+  authDomain: "parent-gagyebu.firebaseapp.com",
+  projectId: "parent-gagyebu",
+  storageBucket: "parent-gagyebu.firebasestorage.app",
+  messagingSenderId: "818650925484",
+  appId: "1:818650925484:web:203ec7aeb0fc30fbbed209",
+};
+const FAMILY_ID = 'main';
 
 const CATEGORIES = {
   expense: [
@@ -409,7 +419,6 @@ const CATEGORIES = {
 // ---------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------
-let appConfig = null;      // { familyId, firebaseConfig }
 let firestoreDb = null;
 let colRef = null;
 let unsubscribeFn = null;
@@ -456,154 +465,46 @@ function showConfirm(message, onYes) {
   noBtn.onclick = cleanup;
 }
 
-function generateFamilyCode() {
-  // 헷갈리는 글자(0/O, 1/I) 제외한 코드 생성
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
-
 // ---------------------------------------------------------------------
-// Config load / save
+// 설정 화면 (⚙️ 설정 눌렀을 때만 보이는 보조 화면 — 내보내기 등)
 // ---------------------------------------------------------------------
-function loadConfig() {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed.familyId || !parsed.firebaseConfig || !parsed.firebaseConfig.apiKey) return null;
-    return parsed;
-  } catch (e) { return null; }
-}
-function saveConfig(cfg) {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
-}
-function clearConfig() {
-  localStorage.removeItem(CONFIG_KEY);
-}
-
-// parse a pasted firebaseConfig JS object (from Firebase console) into a plain object
-function parseFirebaseConfigText(text) {
-  const out = {};
-  const re = /(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId|measurementId)\s*:\s*["']([^"']+)["']/g;
-  let m;
-  while ((m = re.exec(text)) !== null) out[m[1]] = m[2];
-  return out;
-}
-
-// ---------------------------------------------------------------------
-// Setup / Settings screen (shared renderer)
-// ---------------------------------------------------------------------
-function renderSetupScreen(mode) {
-  // mode: 'initial' (첫 설정, 앱을 아직 못 씀) | 'settings' (앱에서 설정 보기/변경)
-  const existing = appConfig;
+function renderSettingsScreen() {
   const wrap = $('#setup-screen');
   wrap.innerHTML = `
     <div class="setup-header">
       <div class="emoji">💰</div>
-      <h1>${mode === 'initial' ? '우리집 가계부 설정' : '설정'}</h1>
-      <p>${mode === 'initial'
-        ? '처음 한 번만 설정하면 돼요.<br>보통 자녀분이 도와드리는 단계예요.'
-        : '가족 코드와 연결 정보를 확인하거나 바꿀 수 있어요.'}</p>
-    </div>
-
-    <div id="setup-error-area"></div>
-
-    <div class="setup-card">
-      <h2>1. 가족 코드</h2>
-      <p style="font-size:14px;color:var(--sub);margin-bottom:10px;line-height:1.5;">
-        부모님 기기와 자녀분 기기에 <b>똑같은 코드</b>를 넣어야 같은 가계부를 볼 수 있어요.
-      </p>
-      <div class="setup-field">
-        <label>가족 코드</label>
-        <div class="code-row">
-          <input type="text" id="family-code-input" placeholder="예: AB12CD34" value="${existing ? existing.familyId : ''}">
-          <button type="button" id="gen-code-btn">자동생성</button>
-        </div>
-      </div>
+      <h1>설정</h1>
+      <p>우리집 가계부에 연결되어 있어요.</p>
     </div>
 
     <div class="setup-card">
-      <h2>2. Firebase 연결 정보</h2>
-      <p style="font-size:14px;color:var(--sub);margin-bottom:10px;line-height:1.5;">
-        Firebase 콘솔에서 복사한 <code>firebaseConfig</code> 코드를 통째로 붙여넣으세요.
-      </p>
-      <div class="setup-field">
-        <label>firebaseConfig 붙여넣기</label>
-        <textarea id="firebase-config-input" rows="7" style="width:100%;border:2px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;font-family:monospace;color:var(--ink);background:#fff;">${existing ? JSON.stringify(existing.firebaseConfig, null, 2) : ''}</textarea>
-      </div>
-      <div class="setup-note">
-        Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) 에서 나오는<br>
-        <code>const firebaseConfig = { apiKey: "...", ... }</code> 부분을 그대로 붙여넣으면 자동으로 인식돼요.
-      </div>
-    </div>
-
-    <div class="setup-actions">
-      ${mode === 'settings' ? '<button type="button" class="btn-secondary" id="setup-back-btn">뒤로</button>' : ''}
-      <button type="button" class="btn-primary" id="setup-save-btn">${mode === 'initial' ? '저장하고 시작하기' : '저장'}</button>
-    </div>
-
-    ${mode === 'settings' ? `
-    <div class="setup-card" style="margin-top:22px;">
       <h2>내보내기</h2>
       <p style="font-size:14px;color:var(--sub);margin-bottom:12px;">이번 달 내역을 CSV 파일로 저장해요.</p>
       <div class="setup-actions"><button type="button" class="btn-secondary" id="export-csv-btn">CSV로 내보내기</button></div>
     </div>
-    <div class="setup-card">
-      <h2 style="color:var(--red);">이 기기 설정 초기화</h2>
-      <p style="font-size:14px;color:var(--sub);margin-bottom:12px;">이 기기에서만 연결을 끊어요. 데이터는 지워지지 않아요.</p>
-      <div class="setup-actions"><button type="button" class="btn-secondary" id="reset-config-btn" style="color:var(--red);">초기화</button></div>
-    </div>` : ''}
+
+    <div class="setup-actions">
+      <button type="button" class="btn-primary" id="setup-back-btn">가계부로 돌아가기</button>
+    </div>
   `;
-
-  $('#gen-code-btn').onclick = () => { $('#family-code-input').value = generateFamilyCode(); };
-
-  $('#setup-save-btn').onclick = () => {
-    const familyId = $('#family-code-input').value.trim().replace(/\s+/g, '');
-    const rawCfgText = $('#firebase-config-input').value;
-    if (!familyId) return setupError('가족 코드를 입력해주세요.');
-    const parsed = parseFirebaseConfigText(rawCfgText);
-    if (!parsed.apiKey || !parsed.projectId) {
-      return setupError('firebaseConfig 내용을 다시 확인해주세요. (apiKey, projectId가 필요해요)');
-    }
-    const cfg = { familyId, firebaseConfig: parsed };
-    saveConfig(cfg);
-    appConfig = cfg;
-    $('#setup-error-area').innerHTML = '';
-    wrap.innerHTML += `<p class="setup-status">연결하는 중...</p>`;
-    initFirebase(cfg);
-  };
-
-  if (mode === 'settings') {
-    $('#setup-back-btn').onclick = () => { hide(wrap); show($('#app')); show($('#bottom-bar')); };
-    $('#export-csv-btn').onclick = exportCsv;
-    $('#reset-config-btn').onclick = () => {
-      showConfirm('이 기기의 설정을 초기화할까요?\n(가계부 데이터는 그대로 남아있어요)', () => {
-        clearConfig();
-        location.reload();
-      });
-    };
-  }
-}
-function setupError(msg) {
-  $('#setup-error-area').innerHTML = `<div class="setup-error">${msg}</div>`;
+  $('#export-csv-btn').onclick = exportCsv;
+  $('#setup-back-btn').onclick = () => { hide(wrap); show($('#app')); show($('#bottom-bar')); };
 }
 
 // ---------------------------------------------------------------------
-// Firebase init
+// Firebase init — 이 파일 안에 이미 연결 정보가 들어있어서 별도 입력 없이 바로 접속됨
 // ---------------------------------------------------------------------
-function initFirebase(cfg) {
+function initFirebase() {
   try {
     if (!firebase.apps || !firebase.apps.length) {
-      firebase.initializeApp(cfg.firebaseConfig);
+      firebase.initializeApp(FIREBASE_CONFIG);
     }
     firestoreDb = firebase.firestore();
     firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => { /* ignore: unsupported or multi-tab */ });
 
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
-        colRef = firestoreDb.collection('families').doc(cfg.familyId).collection('transactions');
+        colRef = firestoreDb.collection('families').doc(FAMILY_ID).collection('transactions');
         startListening();
         showMainApp();
       }
@@ -612,16 +513,23 @@ function initFirebase(cfg) {
       handleInitFailure('로그인에 실패했어요: ' + err.message);
     });
   } catch (err) {
-    handleInitFailure('연결 정보에 문제가 있어요: ' + err.message);
+    handleInitFailure('연결에 문제가 있어요: ' + err.message);
   }
 }
 
 function handleInitFailure(msg) {
-  clearConfig();
-  appConfig = null;
-  renderSetupScreen('initial');
-  setupError(msg + ' 값을 다시 확인해서 저장해주세요.');
-  show($('#setup-screen'));
+  const wrap = $('#setup-screen');
+  wrap.innerHTML = `
+    <div class="setup-header">
+      <div class="emoji">⚠️</div>
+      <h1>연결에 실패했어요</h1>
+      <p>${msg}</p>
+    </div>
+    <div class="setup-note" style="margin-bottom:18px;">인터넷 연결을 확인하신 뒤 다시 시도해주세요.</div>
+    <div class="setup-actions"><button type="button" class="btn-primary" id="retry-btn">다시 시도</button></div>
+  `;
+  $('#retry-btn').onclick = () => location.reload();
+  show(wrap);
   hide($('#app'));
   hide($('#bottom-bar'));
 }
@@ -965,7 +873,7 @@ function wireEvents() {
     e.preventDefault();
     hide($('#app'));
     hide($('#bottom-bar'));
-    renderSetupScreen('settings');
+    renderSettingsScreen();
     show($('#setup-screen'));
   });
 
@@ -1001,13 +909,7 @@ function wireEvents() {
 // ---------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   wireEvents();
-  appConfig = loadConfig();
-  if (appConfig) {
-    initFirebase(appConfig);
-  } else {
-    renderSetupScreen('initial');
-    show($('#setup-screen'));
-  }
+  initFirebase();
 });
 
 </script>
