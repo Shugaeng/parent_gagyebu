@@ -382,15 +382,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<!-- ================= Tesseract.js (receipt OCR) ================= -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<!-- 영수증 OCR은 Google Cloud Vision API를 fetch로 직접 호출해서 처리함 (별도 스크립트 불필요) -->
 
 <script>
 /* =========================================================================
    우리집 가계부 (부모님용) — app.js
    - localStorage에 Firebase 설정 + 가족 코드를 저장해두고
    - Firestore 실시간 동기화로 부모님/자녀 기기가 같은 데이터를 봄
-   - 영수증 사진은 Tesseract.js로 글자를 읽어서 금액/날짜를 자동으로 채움
+   - 영수증 사진은 Google Cloud Vision API로 글자를 읽어서 금액/날짜를 자동으로 채움
    ========================================================================= */
 
 // 우리집 전용 Firebase 프로젝트 — 이미 이 프로젝트로 고정돼 있어서
@@ -404,7 +403,11 @@ const FIREBASE_CONFIG = {
   appId: "1:818650925484:web:203ec7aeb0fc30fbbed209",
 };
 const FAMILY_ID = 'main';
-const APP_VERSION = 'v1.3.0';
+
+// ⬇️ 구글 클라우드 콘솔에서 발급받은 Vision API 키를 아래 따옴표 사이에 붙여넣으세요.
+// (반드시 "HTTP 리퍼러 제한"을 우리 앱 주소로 걸어두신 키를 사용하세요 — 가이드 문서 참고)
+const GOOGLE_VISION_API_KEY = 'AIzaSyALj67Yq9NriQ4vcOCI99svnutx5la455A';
+const APP_VERSION = 'v1.4.0';
 
 const CATEGORIES = {
   expense: [
@@ -767,54 +770,24 @@ function openReceiptModal() {
 }
 function closeReceiptModal() { hide($('#receipt-modal')); }
 
-// 사진을 흑백으로 바꾸고, 사진마다 밝기 상태에 맞춰 자동으로 명암을 최대한 벌려서(auto-levels)
-// 인식률을 높임 (고정된 대비값보다 다양한 조명 환경에서 더 안정적). 실패하면 원본 그대로 사용.
-function preprocessReceiptImage(file) {
+// 사진을 적당한 크기로 줄이고 base64로 바꿈 (Vision API에 보내기 위함 — 속도/용량 절약용 축소만 하고
+// 색은 원본 그대로 둠. Vision은 자체적으로 색이 있는 실제 사진에 최적화돼 있어서 흑백처리가 필요 없음)
+function prepareImageBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       try {
         const longSide = Math.max(img.width, img.height);
-        let scale = 1;
-        if (longSide > 1800) scale = 1800 / longSide;       // 너무 큰 사진은 적당히 축소 (속도)
-        else if (longSide < 1000) scale = 1000 / longSide;  // 너무 작은 사진은 확대 (작은 글씨 보강)
+        const scale = longSide > 1600 ? 1600 / longSide : 1;
         const width = Math.max(1, Math.round(img.width * scale));
         const height = Math.max(1, Math.round(img.height * scale));
-
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-
-        const imgData = ctx.getImageData(0, 0, width, height);
-        const d = imgData.data;
-        const pixelCount = width * height;
-        const gray = new Float32Array(pixelCount);
-        const hist = new Uint32Array(256);
-        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-          const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          gray[p] = g;
-          hist[Math.round(g)]++;
-        }
-
-        // 상/하위 2%는 잡음으로 보고 잘라낸 뒤, 나머지 밝기 범위를 0~255로 쭉 늘려서
-        // 그림자·역광 등 조명이 고르지 않은 사진에서도 글자와 배경이 또렷해지게 함
-        const cut = pixelCount * 0.02;
-        let lo = 0, acc = 0;
-        for (; lo < 255; lo++) { acc += hist[lo]; if (acc > cut) break; }
-        let hi = 255; acc = 0;
-        for (; hi > 0; hi--) { acc += hist[hi]; if (acc > cut) break; }
-        if (hi <= lo) { lo = 0; hi = 255; } // 안전장치 (거의 단색 사진 등)
-
-        const range = hi - lo || 1;
-        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-          let v = ((gray[p] - lo) / range) * 255;
-          v = v < 0 ? 0 : v > 255 ? 255 : v;
-          d[i] = d[i + 1] = d[i + 2] = v;
-        }
-        ctx.putImageData(imgData, 0, 0);
-        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('이미지 처리 실패'))), 'image/png');
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve(dataUrl.split(',')[1]); // "data:image/jpeg;base64," 뒷부분만
       } catch (e) { reject(e); }
     };
     img.onerror = () => reject(new Error('이미지를 열 수 없어요'));
@@ -822,28 +795,52 @@ function preprocessReceiptImage(file) {
   });
 }
 
+// Google Cloud Vision API(DOCUMENT_TEXT_DETECTION)로 영수증 사진의 글자를 읽어옴
+async function recognizeReceiptText(file) {
+  if (!GOOGLE_VISION_API_KEY || GOOGLE_VISION_API_KEY.startsWith('PASTE_')) {
+    throw new Error('Vision API 키가 아직 설정되지 않았어요');
+  }
+  const base64 = await prepareImageBase64(file);
+
+  const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [{
+        image: { content: base64 },
+        features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+        imageContext: { languageHints: ['ko', 'en'] },
+      }],
+    }),
+  });
+
+  if (!resp.ok) {
+    let msg = 'OCR 요청 실패 (' + resp.status + ')';
+    try { const errJson = await resp.json(); if (errJson.error && errJson.error.message) msg = errJson.error.message; } catch (e) {}
+    throw new Error(msg);
+  }
+
+  const data = await resp.json();
+  const result = data.responses && data.responses[0];
+  if (!result) throw new Error('OCR 응답이 비어있어요');
+  if (result.error) throw new Error(result.error.message || 'OCR 오류');
+
+  const text = (result.fullTextAnnotation && result.fullTextAnnotation.text) || '';
+  if (!text) throw new Error('글자를 찾지 못했어요');
+  return text;
+}
+
 function handleReceiptFile(file) {
   if (!file) return;
   $('#receipt-pick-view').classList.add('hidden');
   $('#receipt-progress-view').classList.remove('hidden');
-  $('#ocr-status-text').textContent = '사진을 다듬고 있어요...';
+  $('#ocr-status-text').textContent = '영수증을 읽고 있어요...';
 
   const url = URL.createObjectURL(file);
   $('#receipt-thumb').src = url;
 
-  preprocessReceiptImage(file)
-    .catch(() => file) // 다듬기 실패하면 원본 사진으로 그대로 진행
-    .then((imageForOcr) => {
-      $('#ocr-status-text').textContent = '영수증을 읽고 있어요...';
-      return Tesseract.recognize(imageForOcr, 'kor+eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-            $('#ocr-status-text').textContent = `영수증을 읽고 있어요... (${Math.round(m.progress * 100)}%)`;
-          }
-        },
-      });
-    })
-    .then(({ data: { text } }) => {
+  recognizeReceiptText(file)
+    .then((text) => {
       const parsed = parseReceiptText(text);
       parsed.photoUrl = url; // 확인 화면에서 사진과 나란히 비교할 수 있도록 전달
       closeReceiptModal();
@@ -851,7 +848,7 @@ function handleReceiptFile(file) {
     })
     .catch((err) => {
       closeReceiptModal();
-      toast('영수증을 읽지 못했어요. 직접 입력해주세요.', 3200);
+      toast('영수증을 읽지 못했어요. 직접 입력해주세요. (' + err.message + ')', 3800);
       openEntryModal(null, { type: 'expense', photoUrl: url });
     });
 }
