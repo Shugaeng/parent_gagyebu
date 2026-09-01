@@ -447,12 +447,12 @@ const FAMILY_ID = 'main';
 // ⬇️ 구글 클라우드 콘솔에서 발급받은 Vision API 키를 아래 따옴표 사이에 붙여넣으세요.
 // (반드시 "HTTP 리퍼러 제한"을 우리 앱 주소로 걸어두신 키를 사용하세요 — 가이드 문서 참고)
 const GOOGLE_VISION_API_KEY = 'PASTE_YOUR_VISION_API_KEY_HERE';
-const APP_VERSION = 'v1.5.1';
+const APP_VERSION = 'v1.5.2';
 
 const CATEGORIES = {
   expense: [
     { key: 'food',      label: '식비',       emoji: '🍚' },
-    { key: 'daily',     label: '생활용품',    emoji: '🧴' },
+    { key: 'daily',     label: '마트/시장',   emoji: '🛒' },
     { key: 'medical',   label: '의료/약국',   emoji: '💊' },
     { key: 'transport', label: '교통비',      emoji: '🚌' },
     { key: 'event',     label: '경조사비',    emoji: '🎁' },
@@ -999,8 +999,8 @@ function guessCategory(text) {
     ['bill', /통신요금|전기요금|가스요금|관리비|보험료|도시가스|이동통신/],
     ['hobby', /서점|영화관|CGV|메가박스|여행사|헬스|당구|골프/],
     ['event', /화환|장례|상조|축의|경조/],
-    ['daily', /다이소|세탁소|생활용품/],
-    ['food', /마트|편의점|슈퍼|식당|반찬|정육|과일|베이커리|카페|커피|김밥|분식/],
+    ['daily', /다이소|마트|슈퍼|시장|이마트|홈플러스|롯데마트|하나로마트|세탁소/],
+    ['food', /편의점|식당|반찬|정육|과일|베이커리|카페|커피|김밥|분식/],
   ];
   for (const [key, re] of rules) {
     if (re.test(text)) return key;
