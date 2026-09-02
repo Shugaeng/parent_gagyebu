@@ -444,10 +444,14 @@ const FIREBASE_CONFIG = {
 };
 const FAMILY_ID = 'main';
 
-// ⬇️ 구글 클라우드 콘솔에서 발급받은 Vision API 키를 아래 따옴표 사이에 붙여넣으세요.
-// (반드시 "HTTP 리퍼러 제한"을 우리 앱 주소로 걸어두신 키를 사용하세요 — 가이드 문서 참고)
-const GOOGLE_VISION_API_KEY = 'PASTE_YOUR_VISION_API_KEY_HERE';
-const APP_VERSION = 'v1.5.2';
+// Vision API 키는 이제 이 파일에 적지 않아요.
+// 앱의 ⚙️설정 화면에서 한 번만 입력하면 Firestore에 저장돼서
+// 모든 기기에 공유되고, index.html을 새로 올려도 지워지지 않아요.
+const VISION_KEY_CACHE = 'gagyebu_vision_key';
+let visionApiKey = localStorage.getItem(VISION_KEY_CACHE) || '';
+let visionKeyDocRef = null;
+
+const APP_VERSION = 'v1.6.0';
 
 const CATEGORIES = {
   expense: [
@@ -538,12 +542,75 @@ function renderSettingsScreen() {
       <div class="setup-actions"><button type="button" class="btn-secondary" id="export-csv-btn">CSV로 내보내기</button></div>
     </div>
 
+    <div class="setup-card">
+      <h2>영수증 자동 인식 키</h2>
+      <p style="font-size:14px;color:var(--sub);margin-bottom:12px;">
+        구글 Vision API 키를 한 번만 넣어두면 저장돼요. 앱 파일을 새로 올려도 지워지지 않고, 가족 모두의 기기에 적용돼요.
+      </p>
+      <p id="vision-key-status" style="font-size:15px;font-weight:700;margin-bottom:10px;"></p>
+      <input type="text" class="text-input" id="vision-key-input" placeholder="AIza..." autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="setup-actions" style="margin-top:12px;">
+        <button type="button" class="btn-primary" id="vision-key-save">키 저장</button>
+        <button type="button" class="btn-secondary" id="vision-key-clear">지우기</button>
+      </div>
+    </div>
+
     <div class="setup-actions">
       <button type="button" class="btn-primary" id="setup-back-btn">가계부로 돌아가기</button>
     </div>
   `;
   $('#export-csv-btn').onclick = exportCsv;
+  renderVisionKeyStatus();
+  $('#vision-key-save').onclick = saveVisionKey;
+  $('#vision-key-clear').onclick = clearVisionKey;
   $('#setup-back-btn').onclick = () => { hide(wrap); show($('#app')); show($('#bottom-bar')); };
+}
+
+// 저장된 키는 앞뒤 몇 글자만 보여줌 (제대로 들어갔는지 확인용)
+function maskKey(k) {
+  if (!k) return '';
+  if (k.length <= 12) return k.slice(0, 4) + '••••';
+  return k.slice(0, 6) + '••••••' + k.slice(-4);
+}
+
+function renderVisionKeyStatus() {
+  const el = $('#vision-key-status');
+  if (!el) return;
+  if (visionApiKey) {
+    el.textContent = '✅ 저장됨 (' + maskKey(visionApiKey) + ')';
+    el.style.color = 'var(--ink)';
+  } else {
+    el.textContent = '⚠️ 아직 키가 없어요 — 영수증 자동 인식이 꺼져 있어요';
+    el.style.color = '#c0392b';
+  }
+  const input = $('#vision-key-input');
+  if (input) input.value = '';
+}
+
+function saveVisionKey() {
+  const key = $('#vision-key-input').value.trim();
+  if (!key) return toast('키를 붙여넣어 주세요.');
+  if (key.startsWith('PASTE_')) return toast('예시 문구 말고 실제 키를 넣어주세요.');
+  if (key.length < 20) return toast('키가 너무 짧아요. 다시 확인해주세요.');
+
+  visionApiKey = key;
+  try { localStorage.setItem(VISION_KEY_CACHE, key); } catch (e) {}
+  renderVisionKeyStatus();
+
+  if (!visionKeyDocRef) { toast('이 기기에만 저장했어요 (연결 대기중)'); return; }
+  visionKeyDocRef.set({ apiKey: key, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+    .then(() => toast('키를 저장했어요 ✓'))
+    .catch((e) => toast('이 기기에만 저장됐어요: ' + e.message, 3500));
+}
+
+function clearVisionKey() {
+  showConfirm('저장된 Vision API 키를 지울까요?', () => {
+    visionApiKey = '';
+    try { localStorage.removeItem(VISION_KEY_CACHE); } catch (e) {}
+    renderVisionKeyStatus();
+    if (visionKeyDocRef) visionKeyDocRef.set({ apiKey: '' }, { merge: true }).catch(() => {});
+    toast('키를 지웠어요');
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -560,6 +627,15 @@ function initFirebase() {
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
         colRef = firestoreDb.collection('families').doc(FAMILY_ID).collection('transactions');
+        visionKeyDocRef = firestoreDb.collection('families').doc(FAMILY_ID).collection('config').doc('vision');
+        // 저장해둔 Vision 키를 불러오고, 다른 기기에서 바꾸면 자동으로 따라옴
+        visionKeyDocRef.onSnapshot((snap) => {
+          const key = (snap.exists && snap.data() && snap.data().apiKey) || '';
+          if (key) {
+            visionApiKey = key;
+            try { localStorage.setItem(VISION_KEY_CACHE, key); } catch (e) {}
+          }
+        }, () => { /* 읽기 실패해도 캐시된 키로 계속 동작 */ });
         startListening();
         showMainApp();
       }
@@ -925,12 +1001,12 @@ function prepareImageBase64(file) {
 
 // Google Cloud Vision API(DOCUMENT_TEXT_DETECTION)로 영수증 사진의 글자를 읽어옴
 async function recognizeReceiptText(file) {
-  if (!GOOGLE_VISION_API_KEY || GOOGLE_VISION_API_KEY.startsWith('PASTE_')) {
-    throw new Error('Vision API 키가 아직 설정되지 않았어요');
+  if (!visionApiKey) {
+    throw new Error('⚙️설정 화면에서 Vision API 키를 먼저 입력해주세요');
   }
   const base64 = await prepareImageBase64(file);
 
-  const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_API_KEY}`, {
+  const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(visionApiKey)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
