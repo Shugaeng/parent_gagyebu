@@ -451,7 +451,7 @@ const VISION_KEY_CACHE = 'gagyebu_vision_key';
 let visionApiKey = localStorage.getItem(VISION_KEY_CACHE) || '';
 let visionKeyDocRef = null;
 
-const APP_VERSION = 'v1.6.1';
+const APP_VERSION = 'v1.6.2';
 
 const CATEGORIES = {
   expense: [
@@ -1099,6 +1099,14 @@ function isTransitRecharge(text) {
 
 function extractRechargeAmount(text) {
   const lines = text.split('\n');
+  // OCR이 '금 액'처럼 띄어 읽는 경우가 잦아서 글자 사이 공백을 모두 허용함
+  const L = {
+    before: /(보\s*충|충\s*전)\s*전\s*금\s*액/,
+    after:  /(보\s*충|충\s*전)\s*후\s*금\s*액/,
+    charge: /(보\s*충|충\s*전)\s*금\s*액/,
+    paid:   /(투\s*입|받\s*은|현\s*금|결\s*제)\s*금\s*액/,
+    change: /거\s*스\s*름|잔\s*돈/,
+  };
   const numsIn = (line) => [...line.matchAll(/(\d{1,3}(?:,\d{3})+|\d+)/g)]
     .map((m) => parseInt(m[1].replace(/,/g, ''), 10))
     .filter((n) => Number.isFinite(n));
@@ -1113,23 +1121,62 @@ function extractRechargeAmount(text) {
     const v = Math.max(...ns);
 
     // 순서 중요: '전/후'를 먼저 걸러내야 '보충 금액'이 잔액을 물지 않음
-    if (/(보충|충전)\s*전\s*금액/.test(line)) before = v;
-    else if (/(보충|충전)\s*후\s*금액/.test(line)) after = v;
-    else if (/(보충|충전)\s*금액/.test(line)) charge = v;
-    else if (/(투입|받은|현금|결제)\s*금액/.test(line)) paid = v;
-    else if (/거스름|잔돈/.test(line)) change = v;
+    if (L.before.test(line)) before = v;
+    else if (L.after.test(line)) after = v;
+    else if (L.charge.test(line)) charge = v;
+    else if (L.paid.test(line)) paid = v;
+    else if (L.change.test(line)) change = v;
   }
 
   // 1순위: '보충 금액' 그대로
   if (charge && charge > 0) return charge;
   // 2순위: 충전 후 - 충전 전
   if (before !== null && after !== null && after > before) return after - before;
-  // 3순위: 투입한 돈 - 거스름돈
+
+  // 3순위: OCR이 항목명과 금액을 따로 떼어 읽어서(왼쪽 글자 줄 / 오른쪽 숫자 줄)
+  // 위 규칙이 전부 실패한 경우 — 인쇄 순서대로 놓인 금액들 중
+  // "앞 잔액 + 충전액 = 뒤 잔액"이 성립하는 조합을 찾아 가운데 값을 충전액으로 봄
+  const byArithmetic = rechargeAmountByArithmetic(text);
+  if (byArithmetic) return byArithmetic;
+
+  // 4순위: 투입한 돈 - 거스름돈
   if (paid !== null && paid > 0) {
     const net = paid - (change || 0);
     if (net > 0) return net;
   }
   return null;
+}
+
+// 영수증에 인쇄된 순서대로 금액(쉼표 찍힌 숫자)을 모아서 a + b = c 를 만족하는 조합을 찾음.
+// 남산역 영수증 기준: [1,600 / 10,000 / 11,600 / 10,000] → 1,600 + 10,000 = 11,600 → 10,000 반환
+function rechargeAmountByArithmetic(text) {
+  const nums = [...text.matchAll(/\d{1,3}(?:,\d{3})+/g)]
+    .map((m) => parseInt(m[0].replace(/,/g, ''), 10))
+    .filter((n) => n >= 100 && n <= 5000000);
+  if (nums.length < 3) return null;
+
+  const candidates = [];
+  for (let i = 0; i < nums.length; i++) {
+    for (let j = i + 1; j < nums.length; j++) {
+      for (let k = j + 1; k < nums.length; k++) {
+        if (nums[i] + nums[j] === nums[k]) candidates.push(nums[j]); // 가운데 = 충전액
+      }
+    }
+  }
+  if (!candidates.length) return null;
+
+  // 충전 금액은 거의 항상 1,000원 단위라, 그런 후보를 우선함
+  const round = candidates.filter((n) => n % 1000 === 0);
+  const pool = round.length ? round : candidates;
+
+  // 같은 값이 여러 번 나오면(보충 금액 + 투입 금액) 그게 정답일 가능성이 높음
+  const count = new Map();
+  for (const n of pool) count.set(n, (count.get(n) || 0) + 1);
+  let best = pool[0];
+  for (const [n, c] of count) {
+    if (c > (count.get(best) || 0) || (c === count.get(best) && n > best)) best = n;
+  }
+  return best;
 }
 
 function rechargeMemo(text) {
